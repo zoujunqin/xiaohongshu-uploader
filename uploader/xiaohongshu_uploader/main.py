@@ -492,7 +492,7 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
 
         while True:
             try:
-                upload_input = await page.wait_for_selector('input.upload-input', timeout=3000)
+                upload_input = await page.wait_for_selector('input.upload-input', timeout=60000)
                 preview_new = await upload_input.query_selector(
                     'xpath=following-sibling::div[contains(@class, "preview-new")]')
                 if preview_new:
@@ -508,6 +508,11 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
                         break
                     xiaohongshu_logger.debug(_msg("🧍", "还没看到上传成功标识，小人继续等一会"))
                 else:
+                    # 备用检测：标题输入框可见说明上传已完成
+                    title_input = page.locator('input[placeholder*="填写标题"]')
+                    if await title_input.count() and await title_input.is_visible():
+                        xiaohongshu_logger.success(_msg("🥳", "检测到编辑区域已就绪，视频上传完成"))
+                        break
                     xiaohongshu_logger.debug(_msg("🧍", "还没拿到预览区域，小人继续等一会"))
             except Exception as e:
                 xiaohongshu_logger.debug(_msg("😵", f"上传状态还没稳定下来，小人继续观察: {e}"))
