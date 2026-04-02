@@ -144,13 +144,19 @@ def parse_tags(filename: str) -> list[str]:
 # ---------- 定时时间计算 ----------
 def build_schedule_times(account: str, count_per_day: int, days_per_time: int) -> list[datetime]:
     """
-    生成从明天开始的定时发布时间列表。
+    生成定时发布时间列表。
+    以数据库中最后一条定时发布记录的日期 +1 天为起始日，
+    如果没有发布记录则从明天开始。
     会查询数据库中每天已发布的数量，只补充剩余的时间槽。
     """
     count_per_day = min(count_per_day, 3)
 
     schedule = []
-    base_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    last_date_str = get_last_publish_date(account)
+    if last_date_str:
+        base_date = datetime.strptime(last_date_str, "%Y-%m-%d") + timedelta(days=1)
+    else:
+        base_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
     for day_offset in range(days_per_time):
         day = base_date + timedelta(days=day_offset)
