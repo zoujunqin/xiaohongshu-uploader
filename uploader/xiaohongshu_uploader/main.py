@@ -399,14 +399,20 @@ class XiaoHongShuBaseUploader(BaseVideoUploader):
             desc = page.locator('p[data-placeholder*="输入正文描述"]')
             await desc.click()
 
-        await page.keyboard.type("#" + self.tags[0], delay=30)
-        await page.locator('#creator-editor-topic-container').wait_for(
-            state="visible",
-            timeout=3000
-        )
-        first_item = page.locator('#creator-editor-topic-container .item').first
-        await first_item.wait_for(state="visible", timeout=2000)
-        await first_item.click()
+        for tag in self.tags:
+            await page.keyboard.type("#" + tag, delay=30)
+            try:
+                await page.locator('#creator-editor-topic-container').wait_for(
+                    state="visible",
+                    timeout=3000
+                )
+                first_item = page.locator('#creator-editor-topic-container .item').first
+                await first_item.wait_for(state="visible", timeout=2000)
+                await first_item.click()
+            except Exception:
+                # 如果标签建议未弹出，按 Enter 确认后继续下一个标签
+                await page.keyboard.press("Enter")
+            await asyncio.sleep(0.5)
 
     async def fill_meta(self, page: Page) -> None:
         await self.fill_title(page)

@@ -191,9 +191,10 @@ async def process_single_account(account: str, video_dir: str, count_per_day: in
         last_date = datetime.strptime(last_date_str, "%Y-%m-%d")
         days_since_last = (datetime.now() - last_date).days
         if days_since_last > 3:
-            xiaohongshu_logger.info(
+            xiaohongshu_logger.warning(
                 f"账号 {account}: 最后发布记录为 {last_date_str}，"
-                f"距今已 {days_since_last} 天，超过 3 天，跳过本次发布"
+                f"距今已 {days_since_last} 天，超过 3 天，跳过本次发布。"
+                f"如需继续发布，请先清理该账号的发布记录或手动添加近期记录。"
             )
             return
 
@@ -222,7 +223,6 @@ async def process_single_account(account: str, video_dir: str, count_per_day: in
         publish_time = schedule_times[i]
         title = parse_title(video_path.name)
         tags = parse_tags(video_path.name)
-        print(tags)
         thumbnail_path = video_path.with_suffix(".png")
 
         xiaohongshu_logger.info(
