@@ -246,6 +246,7 @@ async def process_single_account(account: str, video_dir: str, count_per_day: in
                 publish_date=publish_time,
                 account_file=account_file,
                 thumbnail_path=str(thumbnail_path) if thumbnail_path.exists() else None,
+                desc=title
             )
             # 走和 CLI 完全一致的完整上传流程
             await app.main()

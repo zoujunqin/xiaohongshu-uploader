@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip show:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(where:*)",
+      "Bash(py:*)"
+    ]
+  }
+}
