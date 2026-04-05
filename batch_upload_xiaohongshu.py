@@ -34,6 +34,7 @@ from uploader.xiaohongshu_uploader.main import (
     xiaohongshu_setup,
 )
 from utils.log import xiaohongshu_logger
+from utils.wifi_switch import switch_wifi
 
 # ---------- 配置 ----------
 CONFIG_PATH = Path.home() / "Desktop" / "douyin-downloader" / "multiple_account_config.json"
@@ -297,6 +298,8 @@ async def process_account(account_cfg: dict):
     video_dir = account_cfg.get("xiaohongshu_video_upload_dir_path", "")
     count_per_day = min(account_cfg.get("count_per_day", 1), 2)
     days_per_time = min(account_cfg.get("days_per_time", DEFAULT_DAYS_PER_TIME), MAX_DAYS_PER_TIME)
+    wifi_match = account_cfg.get("wifi_match", False)
+    wifis = account_cfg.get("wifis", [])
 
     raw_accounts = account_cfg.get("xiaohongshu_account", [])
     # 兼容字符串和数组两种格式
@@ -312,6 +315,18 @@ async def process_account(account_cfg: dict):
     for idx, account in enumerate(accounts):
         if not account:
             continue
+
+        # 切换 WiFi：wifi_match 开启时按下标一一对应，无对应 WiFi 则跳过
+        if wifi_match:
+            if idx >= len(wifis) or not wifis[idx]:
+                xiaohongshu_logger.warning(f"账号 {account}（下标 {idx}）没有对应的 WiFi 配置，跳过该账号")
+                continue
+            target_wifi = wifis[idx]
+            xiaohongshu_logger.info(f"账号 {account} 对应 WiFi: {target_wifi}")
+            if not await switch_wifi(target_wifi):
+                xiaohongshu_logger.error(f"WiFi 切换失败，跳过账号: {account}")
+                continue
+
         xiaohongshu_logger.info(f"---------- 处理账号: {account} ----------")
         await process_single_account(account, video_dir, count_per_day, days_per_time)
         # 账号之间间隔 5 秒

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from patchright.async_api import async_playwright
 from conf import DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
 from utils.base_social_media import set_init_script
+from utils.fingerprint import generate_fingerprint, get_launch_args, get_context_options
 from utils.login_qrcode import build_login_qrcode_path
 from utils.login_qrcode import decode_qrcode_from_path
 from utils.login_qrcode import print_terminal_qrcode
@@ -150,12 +152,17 @@ async def cookie_auth(account_file):
         return False
 
     async with async_playwright() as playwright:
+        fingerprint = generate_fingerprint()
+        launch_kwargs = {"headless": True, "args": get_launch_args()}
         if LOCAL_CHROME_PATH:
-            browser = await playwright.chromium.launch(headless=True, executable_path=LOCAL_CHROME_PATH)
+            launch_kwargs["executable_path"] = LOCAL_CHROME_PATH
         else:
-            browser = await playwright.chromium.launch(headless=True, channel="chrome")
+            launch_kwargs["channel"] = "chrome"
+        browser = await playwright.chromium.launch(**launch_kwargs)
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await browser.new_context(
+                **get_context_options(fingerprint, storage_state=account_file)
+            )
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto(XHS_PUBLISH_VIDEO_URL)
@@ -220,8 +227,9 @@ async def xiaohongshu_cookie_gen(
     account_path.parent.mkdir(parents=True, exist_ok=True)
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=headless, channel="chrome")
-        context = await browser.new_context()
+        fingerprint = generate_fingerprint()
+        browser = await playwright.chromium.launch(headless=headless, channel="chrome", args=get_launch_args())
+        context = await browser.new_context(**get_context_options(fingerprint))
         context = await set_init_script(context)
         qrcode_path = None
         qrcode_info = None
@@ -416,7 +424,9 @@ class XiaoHongShuBaseUploader(BaseVideoUploader):
 
     async def fill_meta(self, page: Page) -> None:
         await self.fill_title(page)
+        await asyncio.sleep(random.uniform(2, 5))
         await self.fill_desc(page)
+        await asyncio.sleep(random.uniform(2, 5))
         await self.fill_tags(page)
 
 
@@ -511,6 +521,7 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
                             break
                     if upload_success:
                         xiaohongshu_logger.success(_msg("🥳", "视频已经传完啦"))
+                        await asyncio.sleep(random.uniform(3, 8))
                         break
                     xiaohongshu_logger.debug(_msg("🧍", "还没看到上传成功标识，小人继续等一会"))
                 else:
@@ -518,20 +529,22 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
                     title_input = page.locator('input[placeholder*="填写标题"]')
                     if await title_input.count() and await title_input.is_visible():
                         xiaohongshu_logger.success(_msg("🥳", "检测到编辑区域已就绪，视频上传完成"))
+                        await asyncio.sleep(random.uniform(3, 8))
                         break
                     xiaohongshu_logger.debug(_msg("🧍", "还没拿到预览区域，小人继续等一会"))
             except Exception as e:
                 xiaohongshu_logger.debug(_msg("😵", f"上传状态还没稳定下来，小人继续观察: {e}"))
-            await asyncio.sleep(2)
 
         xiaohongshu_logger.info(_msg("✍️", "小人开始填标题、描述和话题"))
         await self.fill_meta(page)
 
+        await asyncio.sleep(random.uniform(2, 5))
         await self.set_thumbnail(page, self.thumbnail_path)
 
         # await self.set_location(page, "青岛市")
 
         if self.publish_strategy == XIAOHONGSHU_PUBLISH_STRATEGY_SCHEDULED and self.publish_date != 0:
+            await asyncio.sleep(random.uniform(2, 5))
             await self.set_schedule_time_xiaohongshu(page, self.publish_date)
 
         while True:
@@ -556,10 +569,10 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
         xiaohongshu_logger.info(_msg("🧍", "小人先检查 cookie、视频文件、封面和发布时间"))
         await self.validate_upload_args()
         xiaohongshu_logger.info(_msg("🥳", "上传前检查通过"))
-        browser = await playwright.chromium.launch(headless=self.headless, channel="chrome")
+        fingerprint = generate_fingerprint()
+        browser = await playwright.chromium.launch(headless=self.headless, channel="chrome", args=get_launch_args())
         context = await browser.new_context(
-            permissions=["geolocation"],
-            storage_state=self.account_file,
+            **get_context_options(fingerprint, storage_state=self.account_file, permissions=["geolocation"])
         )
         context = await set_init_script(context)
 
@@ -674,10 +687,10 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
         xiaohongshu_logger.info(_msg("🧍", "小人先检查 cookie、图片和发布时间"))
         await self.validate_upload_args()
         xiaohongshu_logger.info(_msg("🥳", "图文上传前检查通过"))
-        browser = await playwright.chromium.launch(headless=self.headless, channel="chrome")
+        fingerprint = generate_fingerprint()
+        browser = await playwright.chromium.launch(headless=self.headless, channel="chrome", args=get_launch_args())
         context = await browser.new_context(
-            permissions=["geolocation"],
-            storage_state=self.account_file,
+            **get_context_options(fingerprint, storage_state=self.account_file, permissions=["geolocation"])
         )
         context = await set_init_script(context)
 
