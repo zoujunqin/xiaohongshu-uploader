@@ -12,14 +12,16 @@
 
 发布规则：
     - 默认定时发布，一次发布 days_per_time 天
-    - 每天最多发布 count_per_day 条（上限 3）
-    - 第一条 09:00，第二条 13:00，第三条 18:00
+    - 每天最多发布 count_per_day 条（上限 2）
+    - 定时时间在 10:00~22:00 之间随机生成
+    - 同一天两条发布时间间隔不少于 4 小时
     - 已发布的视频记录到 SQLite，下次运行自动跳过
 """
 
 import asyncio
 import json
 import os
+import random
 import re
 import sqlite3
 from datetime import datetime, timedelta
@@ -37,8 +39,11 @@ from utils.log import xiaohongshu_logger
 CONFIG_PATH = Path.home() / "Desktop" / "douyin-downloader" / "multiple_account_config.json"
 DB_PATH = Path(BASE_DIR) / "db" / "database.db"
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv"}
-SCHEDULE_HOURS = [9, 13, 18]  # 每天定时发布的时刻：9点、13点、18点
-DEFAULT_DAYS_PER_TIME = 15  # 默认一次发布天数
+SCHEDULE_HOUR_MIN = 10   # 定时发布最早时刻（含）
+SCHEDULE_HOUR_MAX = 22   # 定时发布最晚时刻（含）
+MIN_GAP_HOURS = 4        # 同一天两条之间的最小间隔（小时）
+DEFAULT_DAYS_PER_TIME = 3   # 默认一次发布天数
+MAX_DAYS_PER_TIME = 3       # 一次发布天数上限
 
 
 # ---------- 数据库 ----------
@@ -142,14 +147,45 @@ def parse_tags(filename: str) -> list[str]:
 
 
 # ---------- 定时时间计算 ----------
+def _random_time_in_range(day: datetime) -> datetime:
+    """在 day 当天 SCHEDULE_HOUR_MIN:00 ~ SCHEDULE_HOUR_MAX:00 之间生成随机时间"""
+    hour = random.randint(SCHEDULE_HOUR_MIN, SCHEDULE_HOUR_MAX)
+    minute = random.randint(0, 59)
+    return day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
+def _generate_random_times_for_day(day: datetime, count: int) -> list[datetime]:
+    """
+    为某一天生成 count 个随机发布时间（10:00~22:00），
+    若 count >= 2，保证任意两个时间间隔 >= MIN_GAP_HOURS 小时。
+    """
+    if count <= 0:
+        return []
+    if count == 1:
+        return [_random_time_in_range(day)]
+
+    # count == 2：生成两个间隔 >= MIN_GAP_HOURS 的随机时间
+    for _ in range(100):
+        t1 = _random_time_in_range(day)
+        t2 = _random_time_in_range(day)
+        if abs((t1 - t2).total_seconds()) >= MIN_GAP_HOURS * 3600:
+            return sorted([t1, t2])
+
+    # 保底：固定间隔
+    t1 = day.replace(hour=SCHEDULE_HOUR_MIN, minute=random.randint(0, 59), second=0, microsecond=0)
+    t2 = day.replace(hour=SCHEDULE_HOUR_MIN + MIN_GAP_HOURS, minute=random.randint(0, 59), second=0, microsecond=0)
+    return sorted([t1, t2])
+
+
 def build_schedule_times(account: str, count_per_day: int, days_per_time: int) -> list[datetime]:
     """
     生成定时发布时间列表。
     以数据库中最后一条定时发布记录的日期 +1 天为起始日，
     如果没有发布记录则从明天开始。
     会查询数据库中每天已发布的数量，只补充剩余的时间槽。
+    每天最多 2 条，时间在 10:00~22:00 随机，间隔 >= 4 小时。
     """
-    count_per_day = min(count_per_day, 3)
+    count_per_day = min(count_per_day, 2)
 
     schedule = []
     last_date_str = get_last_publish_date(account)
@@ -166,10 +202,9 @@ def build_schedule_times(account: str, count_per_day: int, days_per_time: int) -
         if remaining <= 0:
             xiaohongshu_logger.info(f"{date_str} 已发布 {already_published} 条，已达上限 {count_per_day}，跳过")
             continue
-        # 取该天尚未占用的时间槽（从第 already_published 个开始）
-        available_hours = SCHEDULE_HOURS[:count_per_day][already_published:]
-        for h in available_hours:
-            schedule.append(day.replace(hour=h, minute=0))
+        # 生成当天剩余的随机时间槽
+        random_times = _generate_random_times_for_day(day, remaining)
+        schedule.extend(random_times)
 
     return schedule
 
@@ -190,19 +225,6 @@ async def process_single_account(account: str, video_dir: str, count_per_day: in
         await asyncio.sleep(10)
     else:
         xiaohongshu_logger.info(f"账号 {account}: cookie 文件已存在，跳过登录检测")
-
-    # 检查是否在最后发布记录的 3 天内，超出则跳过
-    last_date_str = get_last_publish_date(account)
-    if last_date_str:
-        last_date = datetime.strptime(last_date_str, "%Y-%m-%d")
-        days_since_last = (datetime.now() - last_date).days
-        if days_since_last > 3:
-            xiaohongshu_logger.warning(
-                f"账号 {account}: 最后发布记录为 {last_date_str}，"
-                f"距今已 {days_since_last} 天，超过 3 天，跳过本次发布。"
-                f"如需继续发布，请先清理该账号的发布记录或手动添加近期记录。"
-            )
-            return
 
     videos = get_video_files(video_dir)
     if not videos:
@@ -273,8 +295,8 @@ async def process_single_account(account: str, video_dir: str, count_per_day: in
 async def process_account(account_cfg: dict):
     """处理一条配置，xiaohongshu_account 支持字符串或数组"""
     video_dir = account_cfg.get("xiaohongshu_video_upload_dir_path", "")
-    count_per_day = min(account_cfg.get("count_per_day", 1), 3)
-    days_per_time = account_cfg.get("days_per_time", DEFAULT_DAYS_PER_TIME)
+    count_per_day = min(account_cfg.get("count_per_day", 1), 2)
+    days_per_time = min(account_cfg.get("days_per_time", DEFAULT_DAYS_PER_TIME), MAX_DAYS_PER_TIME)
 
     raw_accounts = account_cfg.get("xiaohongshu_account", [])
     # 兼容字符串和数组两种格式
